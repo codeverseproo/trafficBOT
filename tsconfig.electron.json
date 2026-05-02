@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "es2023",
+    "module": "commonjs",
+    "types": ["node", "electron"],
+    "skipLibCheck": true,
+    "moduleResolution": "node",
+    "outDir": "./dist-electron",
+    "rootDir": ".",
+    "noEmit": false,
+    "ignoreDeprecations": "6.0"
+  },
+  "include": ["electron/**/*"]
+}
