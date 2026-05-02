@@ -34,35 +34,54 @@ export function calcEngagementScore(stats: Partial<SessionStats>): number {
 export async function seedBrowserHistory(page: Page, targetUrl: string) {
   try {
     const host = new URL(targetUrl).hostname;
-    const fakePages = [
+    // Build 12–15 realistic history entries spread over the last 7 days
+    const paths = [
+      '/', '/about', '/blogs', '/contact',
+      '/blogs/getting-started', '/blogs/tips-and-tricks',
+      '/blogs/best-practices', '/blogs/deep-dive',
+      '/categories/technology', '/categories/all',
       `https://www.google.com/search?q=${encodeURIComponent(host)}`,
-      `https://${host}/`,
-      `https://${host}/about`,
-      `https://${host}/blog`,
-      targetUrl,
+      `https://www.google.com/search?q=site:${encodeURIComponent(host)}`,
+      `https://www.bing.com/search?q=${encodeURIComponent(host)}`,
     ];
-    await page.evaluate((pages) => {
-      for (let i = 0; i < pages.length - 1; i++) {
-        history.pushState({}, '', pages[i]);
+    const count = 10 + Math.floor(Math.random() * 5);
+    const selected = paths.sort(() => Math.random() - 0.5).slice(0, count);
+    await page.evaluate(({ entries, h }) => {
+      for (const p of entries) {
+        const url = p.startsWith('http') ? p : `https://${h}${p}`;
+        try { history.pushState({}, '', url); } catch {}
       }
-    }, fakePages);
+    }, { entries: selected, h: host });
   } catch {}
 }
 
 // ─── localStorage Pre-Seeding ─────────────────────────────────────────────────
+function _gaId() {
+  const r = () => Math.floor(Math.random() * 1e9);
+  return `GA1.2.${r()}.${Math.floor(Date.now() / 1000) - Math.floor(Math.random() * 7 * 86400)}`;
+}
 export async function seedLocalStorage(page: Page) {
-  await page.evaluate(() => {
+  await page.evaluate((gaId: string) => {
     const seeds: Record<string, string> = {
       'theme': Math.random() > 0.5 ? 'dark' : 'light',
       'fontSize': ['small', 'medium', 'large'][Math.floor(Math.random() * 3)],
       'lastVisit': new Date(Date.now() - Math.random() * 7 * 86400000).toISOString(),
       'readingProgress': JSON.stringify({ articles: Math.floor(Math.random() * 20) }),
       'newsletter': Math.random() > 0.7 ? 'subscribed' : 'dismissed',
+      // Google Analytics returning-visitor signals
+      '_ga': gaId,
+      '_gid': `GA1.2.${Math.floor(Math.random() * 1e9)}.${Math.floor(Date.now() / 1000)}`,
     };
     for (const [k, v] of Object.entries(seeds)) {
       try { localStorage.setItem(k, v); } catch {}
     }
-  });
+    // Also set _ga as a document cookie (GA reads it from cookie, not LS)
+    try {
+      const exp = new Date(Date.now() + 2 * 365 * 86400000).toUTCString();
+      document.cookie = `_ga=${gaId}; expires=${exp}; path=/; SameSite=Lax`;
+      document.cookie = `_gid=GA1.2.${Math.floor(Math.random() * 1e9)}.${Math.floor(Date.now()/1000)}; path=/; SameSite=Lax`;
+    } catch {}
+  }, _gaId());
 }
 
 // ─── Service Worker Bypass ────────────────────────────────────────────────────

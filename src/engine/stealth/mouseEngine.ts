@@ -153,4 +153,58 @@ export class MouseEngine {
     await new Promise(r => setTimeout(r, Math.random() * 1000 + 400));
     return newPos;
   }
+  // ─── Drag-Selection Simulation ──────────────────────────────────────────
+  // Simulates a human selecting a range of text by clicking and dragging.
+  static async dragSelect(page: Page, currentPos: Point, start: Point, end: Point, profile?: BehaviorProfile): Promise<Point> {
+    await this.move(page, currentPos.x, currentPos.y, start.x, start.y, profile);
+    await page.mouse.down();
+    await new Promise(r => setTimeout(r, Math.random() * 200 + 100));
+    const finalPos = await this.move(page, start.x, start.y, end.x, end.y, profile);
+    await new Promise(r => setTimeout(r, Math.random() * 200 + 100));
+    await page.mouse.up();
+    return finalPos;
+  }
+
+  // ─── Idle Micro-Movements ───────────────────────────────────────────────
+  // Simulates a human hand resting on the mouse or shifting slightly.
+  static async simulateIdle(page: Page, pos: Point) {
+    const count = Math.floor(Math.random() * 3) + 1;
+    let currentPos = { ...pos };
+    for (let i = 0; i < count; i++) {
+      const tx = currentPos.x + (Math.random() * 4 - 2);
+      const ty = currentPos.y + (Math.random() * 4 - 2);
+      await page.mouse.move(tx, ty);
+      currentPos = { x: tx, y: ty };
+      await new Promise(r => setTimeout(r, Math.random() * 1000 + 500));
+    }
+    return currentPos;
+  }
+
+  // ─── Human Hover-Before-Click ───────────────────────────────────────────
+  // Humans often hover an element for a few hundred ms before clicking.
+  static async hoverAndClick(page: Page, selector: string, pos: Point, profile?: BehaviorProfile): Promise<Point> {
+    const el = await page.$(selector);
+    if (!el) throw new Error(`Element not found: ${selector}`);
+    const box = await el.boundingBox();
+    if (!box) throw new Error(`Element not visible: ${selector}`);
+
+    const tx = this.gaussian(box.x + box.width / 2, (box.width - 4) / 4);
+    const ty = this.gaussian(box.y + box.height / 2, (box.height - 4) / 4);
+    const cx = Math.max(box.x + 2, Math.min(box.x + box.width - 2, tx));
+    const cy = Math.max(box.y + 2, Math.min(box.y + box.height - 2, ty));
+
+    // Move to element
+    const newPos = await this.move(page, pos.x, pos.y, cx, cy, profile);
+    
+    // Hover dwell (humans preview links)
+    const hoverTime = 300 + Math.random() * 500;
+    await new Promise(r => setTimeout(r, hoverTime));
+
+    // Click
+    await page.mouse.down();
+    await new Promise(r => setTimeout(r, this.gaussian(80, 25)));
+    await page.mouse.up();
+    
+    return newPos;
+  }
 }

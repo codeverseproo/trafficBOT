@@ -139,15 +139,20 @@ export class AdEngine {
       await page.evaluate(() => {
         try {
           const g = (window as any).googletag;
-          if (g && g.pubads && typeof g.pubads === 'function') {
+          if (g && g.apiReady) {
             g.cmd = g.cmd || [];
             g.cmd.push(() => {
-              // Refresh all unfilled slots
+              // Use modern config for disabling initial load if not already set
+              if (g.setConfig) {
+                g.setConfig({ disableInitialLoad: true });
+              }
+              
               const slots = g.pubads().getSlots ? g.pubads().getSlots() : [];
               const unfilled = slots.filter((s: any) => {
                 const div = document.getElementById(s.getSlotElementId());
                 return div && div.offsetHeight < 5;
               });
+              
               if (unfilled.length > 0) {
                 g.pubads().refresh(unfilled);
               } else if (slots.length > 0) {

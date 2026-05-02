@@ -63,6 +63,21 @@ export class ScrollingEngine {
     }
   }
 
+  // ─── Code / Technical Content pause ───────────────────────────────────────
+  private static async codePause(page: Page) {
+    const hasCode = await page.evaluate(() => {
+      return Array.from(document.querySelectorAll<HTMLElement>('pre, code'))
+        .some(el => {
+          const r = el.getBoundingClientRect();
+          return r.top >= 0 && r.bottom <= window.innerHeight;
+        });
+    }).catch(() => false);
+    if (hasCode) {
+      const extra = 2000 + Math.random() * 3000;
+      await new Promise(r => setTimeout(r, extra));
+    }
+  }
+
   // ─── Sticky header height ─────────────────────────────────────────────────
   // (Removed stickyOffset as it is no longer used)
 
@@ -151,6 +166,7 @@ export class ScrollingEngine {
       
       if (approach !== 'scanner') {
         await this.imagesPause(page, prof);
+        await this.codePause(page);
       }
 
       // Fatigue-based reverse scroll
@@ -170,6 +186,13 @@ export class ScrollingEngine {
       }
 
       if (Math.random() < prof.earlyStopChance) break;
+    }
+
+    // End of read — 30% chance of scrolling back to top slowly
+    if (Math.random() < 0.3 && scrolled > 1000) {
+      console.log('[ScrollingEngine] Done reading — scrolling back to top...');
+      await this.humanScroll(page, -scrolled, prof);
+      await new Promise(r => setTimeout(r, 1000));
     }
 
     const depth = await page.evaluate(() => {

@@ -126,19 +126,26 @@ export class PlaywrightRunner {
         const launchFn       = browserEngine === 'firefox' ? firefox : chromium;
         const browser = await launchFn.launch({
           headless: options.manualAssistMode ? false : isHeadless,
-          args: isHeadless ? [
+          args: [
+            // Core anti-detection — suppress all automation signals
             '--disable-blink-features=AutomationControlled',
             '--disable-infobars',
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
+            '--disable-notifications',
+            // Window / display
             '--window-size=1920,1080',
-            '--use-gl=egl', // GPU acceleration for better canvas fingerprints
-          ] : [
-            '--disable-blink-features=AutomationControlled',
-            '--disable-infobars',
-            '--no-sandbox',
-            '--window-size=1920,1080',
+            '--start-maximized',
+            '--force-device-scale-factor=1',
+            // Rendering — improves canvas/WebGL fingerprint realism
+            '--use-gl=desktop',
+            '--enable-webgl',
+            '--enable-accelerated-2d-canvas',
+            // Misc hardening
+            '--no-first-run',
+            '--no-default-browser-check',
+            '--disable-extensions-except=',
+            '--disable-popup-blocking',
+            // Headless-only memory flags (safe, don't leak headless signal)
+            ...(isHeadless ? ['--disable-dev-shm-usage'] : []),
           ],
         });
         this.browsers.push(browser);
@@ -180,8 +187,9 @@ export class PlaywrightRunner {
         // ─── Dark mode consistency ─────────────────────────────────────────
         const isDark = Math.random() > 0.5;
 
-        // ─── Jitter between worker spawns ──────────────────────────────────
-        await new Promise(r => setTimeout(r, Math.floor(Math.random() * 3000)));
+        // ─── Jitter between worker spawns (log-normal — humans cluster ~1.5s) ─
+        const jitterMs = Math.min(8000, Math.max(800, Math.round(-Math.log(Math.random()) * 1500)));
+        await new Promise(r => setTimeout(r, jitterMs));
 
         console.log(`[W${workerId}] ${url} | Proxy: ${proxy?.server || 'none'} | Profile: ${profile.name} | Mode: ${isHeadless ? 'headless' : 'headed'}`);
 
@@ -226,6 +234,23 @@ export class PlaywrightRunner {
           isDarkMode: isDark,
         });
 
+        // ─── HTTP header hardening ─────────────────────────────────────────
+        // sec-ch-ua, Accept-Language and Accept must match the spoofed UA.
+        // Mismatches are a primary signal for ad-fraud and bot-detection SDKs.
+        const locale = contextOptions.locale || 'en-US';
+        const langHeader = locale.replace('_', '-');
+        const langBase   = langHeader.split('-')[0];
+        const ua         = contextOptions.userAgent || '';
+        // Build a realistic sec-ch-ua string. Modern Chrome uses full version hints.
+        const chromeVerMatch = ua.match(/Chrome\/(\d+)/);
+        const majorVer = chromeVerMatch ? chromeVerMatch[1] : '124';
+        
+        await context.setExtraHTTPHeaders({
+          'sec-ch-ua':          `"Chromium";v="${majorVer}", "Google Chrome";v="${majorVer}", "Not=A?Brand";v="99"`,
+          'sec-ch-ua-mobile':   '?0',
+          'sec-ch-ua-platform': ua.includes('Win') ? '"Windows"' : ua.includes('Mac') ? '"macOS"' : '"Linux"',
+        });
+
         // ─── Session warming ───────────────────────────────────────────────
         let mousePos = { x: 640, y: 400 };
         if (options.sessionWarm) await SessionWarmer.warmSession(context, mousePos);
@@ -236,7 +261,7 @@ export class PlaywrightRunner {
         // ─── Referrer override ─────────────────────────────────────────────
         const referrer = randomReferrer(url);
         if (referrer) {
-          await page.setExtraHTTPHeaders({ Referer: referrer });
+          await page.setExtraHTTPHeaders({ 'Referer': referrer });
         }
 
         // ─── SESSION FLOW ──────────────────────────────────────────────────
@@ -356,10 +381,12 @@ export class PlaywrightRunner {
             await simulateCopyText(page, profile);
             await simulateBookmark(page, profile);
 
-            // ─ 15. Random hover wander ────────────────────────────────────
+            // ─ 15. Random hover wander + idle ─────────────────────────────
             if (Math.random() > 0.4) {
               mousePos = await MouseEngine.hoverRandom(page, mousePos);
               totalMouseEvt++;
+              // Layer 3: Idle micro-movement
+              mousePos = await MouseEngine.simulateIdle(page, mousePos);
             }
 
             // ─ 16. Manual Assist ──────────────────────────────────────────
@@ -381,7 +408,15 @@ export class PlaywrightRunner {
               const nextLink = await AdEngine.findInternalContentLink(page);
               if (nextLink) {
                 currentUrl = injectUTM(nextLink);
-                // Click rate limiting
+                // Hover before click simulation (Layer 6)
+                const selector = `a[href*="${new URL(nextLink).pathname}"]`;
+                try {
+                  mousePos = await MouseEngine.hoverAndClick(page, selector, mousePos, profile);
+                  totalMouseEvt++;
+                } catch {
+                  // Fallback to direct navigation if element interaction fails
+                  currentUrl = injectUTM(nextLink);
+                }
                 await clickLimiter.throttle();
               } else {
                 sessionActive = false;

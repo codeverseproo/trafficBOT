@@ -48,11 +48,12 @@ export class SessionWarmer {
    * Simulate arriving via Google search: visit google.com -> search -> click result.
    * Produces a valid HTTP Referer header so the target sees organic traffic.
    */
-  static async warmViaSearch(context: BrowserContext, _targetUrl: string): Promise<void> {
+  static async warmViaSearch(context: BrowserContext, targetUrl: string): Promise<void> {
     const page = await context.newPage();
 
     try {
-      const query = SEARCH_QUERIES[Math.floor(Math.random() * SEARCH_QUERIES.length)];
+      const host = new URL(targetUrl).hostname;
+      const query = host.split('.')[0] + ' ' + SEARCH_QUERIES[Math.floor(Math.random() * SEARCH_QUERIES.length)];
       console.log(`[SessionWarmer] Navigating via Google search: "${query}"`);
 
       // 1. Go to Google
@@ -65,7 +66,6 @@ export class SessionWarmer {
       const boxExists = await page.$(searchBox);
       if (boxExists) {
         await boxExists.click();
-        // Type the query character-by-character with variable delay
         for (const ch of query) {
           await page.keyboard.type(ch, { delay: Math.floor(Math.random() * 80) + 40 });
         }
@@ -73,7 +73,25 @@ export class SessionWarmer {
         await page.keyboard.press('Enter');
         await page.waitForLoadState('load');
         await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
-        await new Promise(r => setTimeout(r, Math.random() * 1500 + 1000));
+        await new Promise(r => setTimeout(r, Math.random() * 2000 + 1000));
+
+        // 3. Find and click result matching host
+        const clicked = await page.evaluate((h) => {
+          const links = Array.from(document.querySelectorAll<HTMLAnchorElement>('a'));
+          const targetLink = links.find(a => a.href.includes(h) && !a.href.includes('google.com'));
+          if (targetLink) {
+            targetLink.scrollIntoView();
+            targetLink.click();
+            return true;
+          }
+          return false;
+        }, host);
+
+        if (clicked) {
+          console.log(`[SessionWarmer] Clicked search result for ${host}`);
+          await page.waitForLoadState('load', { timeout: 15000 }).catch(() => {});
+          await new Promise(r => setTimeout(r, 2000));
+        }
       }
     } catch (err) {
       console.warn('[SessionWarmer] Search warm failed, falling back to direct nav.');
