@@ -5,6 +5,7 @@ import { ProxyManager, type ProxyConfig, type RotationMode } from './proxyManage
 import { MouseEngine } from './stealth/mouseEngine';
 import { ScrollingEngine } from './stealth/scrollingEngine';
 import { FingerprintSpoofing } from './stealth/fingerprintSpoofing';
+import { PersonaEngine } from './stealth/personaEngine';
 import { SessionWarmer } from './stealth/sessionWarmer';
 import { AdEngine } from './adEngine';
 import {
@@ -225,40 +226,39 @@ export class PlaywrightRunner {
           }
         }
 
-        const context = await browser.newContext(contextOptions);
-
-        // ─── Stealth init scripts ──────────────────────────────────────────
-        await FingerprintSpoofing.install(context, {
-          locale: contextOptions.locale,
+        // ── Step 1: Generate a globally consistent browser persona ──────────
+        const persona = PersonaEngine.generate();
+        const locale  = contextOptions.locale || 'en-US';
+        
+        const context = await browser.newContext({
+          ...contextOptions,
+          userAgent: persona.userAgent,
+          viewport:  { width: persona.screen.w, height: persona.screen.h },
+          locale,
           timezoneId: contextOptions.timezoneId,
-          isDarkMode: isDark,
         });
 
-        // ─── HTTP header hardening ─────────────────────────────────────────
-        // sec-ch-ua, Accept-Language and Accept must match the spoofed UA.
-        // Mismatches are a primary signal for ad-fraud and bot-detection SDKs.
-        const locale = contextOptions.locale || 'en-US';
-        const langHeader = locale.replace('_', '-');
-        const langBase   = langHeader.split('-')[0];
-        const ua         = contextOptions.userAgent || '';
-        // Build a realistic sec-ch-ua string. Modern Chrome uses full version hints.
-        const chromeVerMatch = ua.match(/Chrome\/(\d+)/);
+        // ── Step 2: HTTP header hardening matching persona ──────────────────
+        const chromeVerMatch = persona.userAgent.match(/Chrome\/(\d+)/);
         const majorVer = chromeVerMatch ? chromeVerMatch[1] : '124';
         
         await context.setExtraHTTPHeaders({
           'sec-ch-ua':          `"Chromium";v="${majorVer}", "Google Chrome";v="${majorVer}", "Not=A?Brand";v="99"`,
           'sec-ch-ua-mobile':   '?0',
-          'sec-ch-ua-platform': ua.includes('Win') ? '"Windows"' : ua.includes('Mac') ? '"macOS"' : '"Linux"',
+          'sec-ch-ua-platform': persona.platform === 'Win32' ? '"Windows"' : '"macOS"',
         });
 
-        // ─── Session warming ───────────────────────────────────────────────
+        // ── Step 3: Session warming ─────────────────────────────────────────
         let mousePos = { x: 640, y: 400 };
         if (options.sessionWarm) await SessionWarmer.warmSession(context, mousePos);
         if (options.searchReferer) await SessionWarmer.warmViaSearch(context, url);
 
         const page = await context.newPage();
 
-        // ─── Referrer override ─────────────────────────────────────────────
+        // ── Step 4: Apply extended JS fingerprinting based on persona ────────
+        await FingerprintSpoofing.apply(page, persona, locale);
+
+        // ── Step 5: Referrer override ───────────────────────────────────────
         const referrer = randomReferrer(url);
         if (referrer) {
           await page.setExtraHTTPHeaders({ 'Referer': referrer });

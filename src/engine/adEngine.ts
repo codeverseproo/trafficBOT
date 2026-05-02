@@ -249,6 +249,46 @@ export class AdEngine {
     }
   }
 
+  // ─── 2. Scroll to ad positions and dwell for viewability (STRATEGIC) ──────
+  static async scrollToAdsAndDwell(page: Page, adPositions: number[]) {
+    const viewport = page.viewportSize() ?? { width: 1366, height: 768 };
+    
+    // Diversity Selection: Pick Top, Middle, and Bottom ads for a realistic profile
+    const sorted = [...adPositions].sort((a, b) => a - b);
+    const selection = [];
+    if (sorted.length > 0) selection.push(sorted[0]); // Top
+    if (sorted.length > 2) selection.push(sorted[Math.floor(sorted.length / 2)]); // Middle
+    if (sorted.length > 1) selection.push(sorted[sorted.length - 1]); // Bottom
+    while (selection.length < Math.min(sorted.length, 5)) {
+      const p = sorted[Math.floor(Math.random() * sorted.length)];
+      if (!selection.includes(p)) selection.push(p);
+    }
+    selection.sort((a, b) => a - b);
+
+    console.log(`[AdEngine] Engaging with ${selection.length} strategic ad zones...`);
+
+    for (const adY of selection) {
+      // ── Step 1: Center ad in the "Attention Sweet Spot" (Top 30-40% of viewport)
+      const targetY = Math.max(0, adY - (viewport.height * 0.3) + (Math.random() * 60 - 30));
+      await page.evaluate((y) => window.scrollTo({ top: y, behavior: 'smooth' }), targetY);
+      await new Promise(r => setTimeout(r, 1000 + Math.random() * 500));
+
+      // ── Step 2: High Viewability Dwell with ActiveView Pulse
+      const adX = viewport.width / 2 + (Math.random() * 160 - 80);
+      const adVpY = adY - targetY; 
+      
+      const dwell = 3000 + Math.random() * 4000;
+      const start = Date.now();
+      while (Date.now() - start < dwell) {
+        // Micro-scroll & Mouse shift to keep "ActiveView" and "IAS" beacons active
+        const micro = (Math.random() > 0.5 ? 1 : -1) * (Math.random() * 2);
+        await page.mouse.wheel(0, micro);
+        await page.mouse.move(adX + (Math.random() * 30 - 15), (adVpY + 60) + (Math.random() * 20 - 10), { steps: 5 });
+        await new Promise(r => setTimeout(r, 1000 + Math.random() * 500));
+      }
+    }
+  }
+
   // ─── 1e. Check ad blocker detection ────────────────────────────────────────
   static async checkAdBlockerDetected(page: Page): Promise<boolean> {
     return page.evaluate(() => {
@@ -260,32 +300,6 @@ export class AdEngine {
       document.body.removeChild(bait);
       return blocked;
     }).catch(() => false);
-  }
-
-  // ─── 2. Scroll to ad positions and dwell for viewability ───────────────────
-  static async scrollToAdsAndDwell(page: Page, adPositions: number[]) {
-    const viewport = page.viewportSize() ?? { width: 1366, height: 768 };
-
-    for (const adY of adPositions.slice(0, 6)) {
-      await page.evaluate((y) => {
-        window.scrollTo({ top: Math.max(0, y - window.innerHeight / 2), behavior: 'smooth' });
-      }, adY);
-
-      await new Promise(r => setTimeout(r, 300));
-
-      // IAS requires ≥1s continuous with ≥50% in viewport — we wait 2–5s
-      const dwell = Math.floor(Math.random() * 3000) + 2000;
-      await new Promise(r => setTimeout(r, dwell));
-
-      const cx = Math.floor(viewport.width  / 2 + (Math.random() * 80 - 40));
-      const cy = Math.floor(viewport.height / 2 + (Math.random() * 40 - 20));
-      await page.mouse.move(cx, cy);
-
-      for (let i = 0; i < 3; i++) {
-        await page.mouse.move(cx + (Math.random() * 10 - 5), cy + (Math.random() * 6 - 3));
-        await new Promise(r => setTimeout(r, Math.random() * 200 + 100));
-      }
-    }
   }
 
   // ─── 3. Detect & Dismiss Vignette / Interstitial Ads ──────────────────────

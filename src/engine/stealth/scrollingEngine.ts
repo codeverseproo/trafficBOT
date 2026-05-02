@@ -7,14 +7,29 @@ export class ScrollingEngine {
 
   // ─── Inertial humanScroll (mouse wheel) ──────────────────────────────────
   static async humanScroll(page: Page, distance: number, _profile?: any) {
-    const steps = Math.floor(Math.random() * 20) + 10;
+    // Add micro-tremor to the scroll distance for realism
+    const jitterDistance = distance + (Math.random() * 4 - 2);
+    const steps = Math.floor(Math.random() * 25) + 15;
     let cur = 0;
     for (let i = 1; i <= steps; i++) {
       const t = i / steps;
-      const target = distance * this.easeOutQuint(t);
-      await page.mouse.wheel(0, target - cur);
+      const target = jitterDistance * this.easeOutQuint(t);
+      // Small horizontal jitter (5% chance of 1px shift)
+      const hDelta = Math.random() > 0.95 ? (Math.random() > 0.5 ? 1 : -1) : 0;
+      await page.mouse.wheel(hDelta, target - cur);
       cur = target;
-      await new Promise(r => setTimeout(r, Math.random() * 15 + 5));
+      // Variable step delay
+      await new Promise(r => setTimeout(r, Math.random() * 12 + 4));
+    }
+  }
+
+  // ─── Eye-Line Micro-Oscillation ──────────────────────────────────────────
+  // Humans often make tiny 10-30px adjustments while reading a paragraph.
+  private static async microOscillate(page: Page) {
+    if (Math.random() > 0.7) {
+      const amt = (Math.random() > 0.5 ? 1 : -1) * (Math.random() * 15 + 5);
+      await this.humanScroll(page, amt);
+      await new Promise(r => setTimeout(r, Math.random() * 800 + 400));
     }
   }
 
@@ -45,7 +60,15 @@ export class ScrollingEngine {
       profile.dwellMin,
       Math.min(profile.dwellMax * fatigueMult, baseMs * fatigueMult)
     );
-    await new Promise(r => setTimeout(r, dwell));
+    
+    // During long dwells, do micro-oscillations to look active
+    if (dwell > 2000) {
+      await new Promise(r => setTimeout(r, dwell / 2));
+      await this.microOscillate(page);
+      await new Promise(r => setTimeout(r, dwell / 2));
+    } else {
+      await new Promise(r => setTimeout(r, dwell));
+    }
   }
 
   // ─── Image / media focus pause ────────────────────────────────────────────
@@ -164,6 +187,40 @@ export class ScrollingEngine {
         await this.readingDwell(page, prof, fat);
       }
       
+      // ── Layer 6: Selection Tracking (Human Habit) ────────────────────────
+      if (Math.random() > 0.9) {
+        console.log('[ScrollingEngine] ✎ Simulating reading-selection (tracking)...');
+        await page.evaluate(() => {
+          const paras = Array.from(document.querySelectorAll('p'));
+          const visible = paras.filter(p => {
+            const r = p.getBoundingClientRect();
+            return r.top > 100 && r.bottom < window.innerHeight - 100;
+          });
+          if (visible.length > 0) {
+            const p = visible[Math.floor(Math.random() * visible.length)];
+            const sel = window.getSelection();
+            const range = document.createRange();
+            if (p.firstChild) {
+              range.setStart(p.firstChild, 0);
+              range.setEnd(p.firstChild, Math.min(20, p.innerText.length));
+              sel?.removeAllRanges();
+              sel?.addRange(range);
+              setTimeout(() => sel?.removeAllRanges(), 1500 + Math.random() * 2000);
+            }
+          }
+        }).catch(() => {});
+      }
+
+      // ── Layer 6: Distraction Loop ────────────────────────────────────────
+      if (Math.random() > 0.95) {
+        console.log('[ScrollingEngine] ⚡ Distraction! Checking something else...');
+        const distAmt = (Math.random() > 0.5 ? 1 : -1) * (Math.random() * 400 + 200);
+        await this.humanScroll(page, distAmt, prof);
+        await new Promise(r => setTimeout(r, Math.random() * 2000 + 1000));
+        await this.humanScroll(page, -distAmt, prof); // Return to flow
+        await new Promise(r => setTimeout(r, 1000));
+      }
+
       if (approach !== 'scanner') {
         await this.imagesPause(page, prof);
         await this.codePause(page);
