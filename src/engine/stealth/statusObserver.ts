@@ -23,20 +23,29 @@ export class StatusObserver {
         observedAds: new Set(),
       };
 
-      const observer = new MutationObserver(() => {
-        (window as any)._phantomStatus.lastMutation = Date.now();
-        
-        // Self-healing ad detection
-        const ads = document.querySelectorAll('ins.adsbygoogle[data-ad-status="filled"], iframe[id^="aswift_"], iframe[id^="google_ads_iframe"]');
-        (window as any)._phantomStatus.adCount = ads.length;
-      });
+      const startObserver = () => {
+        if (!document.documentElement) {
+          setTimeout(startObserver, 10);
+          return;
+        }
 
-      observer.observe(document.documentElement, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ['data-ad-status', 'src', 'style']
-      });
+        const observer = new MutationObserver(() => {
+          (window as any)._phantomStatus.lastMutation = Date.now();
+          
+          // Self-healing ad detection
+          const ads = document.querySelectorAll('ins.adsbygoogle[data-ad-status="filled"], iframe[id^="aswift_"], iframe[id^="google_ads_iframe"]');
+          (window as any)._phantomStatus.adCount = ads.length;
+        });
+
+        observer.observe(document.documentElement, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ['data-ad-status', 'src', 'style']
+        });
+      };
+
+      startObserver();
 
       window.addEventListener('load', () => {
         (window as any)._phantomStatus.isLoaded = true;

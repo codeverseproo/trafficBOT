@@ -244,6 +244,7 @@ export class PlaywrightRunner {
           viewport:  { width: persona.screen.w, height: persona.screen.h },
           locale,
           timezoneId: contextOptions.timezoneId,
+          ignoreHTTPSErrors: true,
         });
 
         // ── Step 2: HTTP header hardening matching persona ──────────────────
