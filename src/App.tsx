@@ -45,6 +45,8 @@ export default function App() {
   const [postReadDelay, setPostReadDelay] = useState(5);
   const [minSessionSeconds, setMinSessionSeconds] = useState(30);
   const [proxyRotation, setProxyRotation] = useState('smart');
+  const [internalVisitCount, setInternalVisitCount] = useState(3);
+  const [adRetryEnabled, setAdRetryEnabled] = useState(true);
   // Persona State
   const [personas, setPersonas] = useState<any[]>([]);
   const [newPersonaName, setNewPersonaName] = useState('');
@@ -104,7 +106,8 @@ export default function App() {
         urls: urlList, headless, concurrency, useProxyPool,
         manualAssistMode, sessionWarm, searchReferer, burnProxyAfterUse,
         totalSessions, postReadDelay, minSessionSeconds, proxyRotation,
-        runMode, personaId: selectedPersona || undefined
+        runMode, personaId: selectedPersona || undefined,
+        internalVisitCount, adRetryEnabled
       });
       if (!result.success) alert('Run failed: ' + result.error);
     } catch { alert('Failed to start run'); }
@@ -438,15 +441,29 @@ export default function App() {
                     />
                   </div>
                   <div>
-                    <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px' }}>Min Session Duration (Secs)</label>
+                    <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px' }}>Max Internal Visits</label>
                     <input 
                       type="number" 
                       className="glass-panel"
                       style={{ width: '100%', padding: '10px', background: 'var(--bg-primary)', color: 'white', border: '1px solid var(--border-focus)', borderRadius: '8px' }}
-                      value={minSessionSeconds}
-                      onChange={(e) => setMinSessionSeconds(parseInt(e.target.value) || 30)}
-                      min="10"
+                      value={internalVisitCount}
+                      onChange={(e) => setInternalVisitCount(parseInt(e.target.value) || 0)}
+                      min="0"
+                      max="10"
                     />
+                  </div>
+                </div>
+
+                <div className="card" style={{ padding: '16px', background: 'rgba(56, 189, 248, 0.03)', border: '1px dashed var(--border-subtle)', marginTop: '8px' }}>
+                  <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: 'var(--accent-primary)' }}>Self-Healing & Ad Logic</h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={adRetryEnabled} onChange={(e) => setAdRetryEnabled(e.target.checked)} />
+                      Auto-Retry on Ad Fail (Self-Healing)
+                    </label>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                      Monitors page stability and mutation events to ensure ad renders before session close.
+                    </div>
                   </div>
                 </div>
                 

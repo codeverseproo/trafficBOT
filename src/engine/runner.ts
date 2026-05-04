@@ -36,6 +36,8 @@ export interface RunOptions {
   postReadDelay?: number;
   minSessionSeconds?: number;
   engineBrowser?: 'chromium' | 'firefox';
+  internalVisitCount?: number;
+  adRetryEnabled?: boolean;
 }
 
 // ─── Runner ──────────────────────────────────────────────────────────────────
@@ -145,8 +147,14 @@ export class PlaywrightRunner {
             '--no-default-browser-check',
             '--disable-extensions-except=',
             '--disable-popup-blocking',
-            // Headless-only memory flags (safe, don't leak headless signal)
-            ...(isHeadless ? ['--disable-dev-shm-usage'] : []),
+            // Headless-only hardening & stability
+            ...(isHeadless ? [
+              '--disable-dev-shm-usage',
+              '--disable-background-timer-throttling',
+              '--disable-backgrounding-occluded-windows',
+              '--disable-renderer-backgrounding',
+              '--disable-features=IsolateOrigins,site-per-process',
+            ] : []),
           ],
         });
         this.browsers.push(browser);
@@ -246,6 +254,7 @@ export class PlaywrightRunner {
           'sec-ch-ua':          `"Chromium";v="${majorVer}", "Google Chrome";v="${majorVer}", "Not=A?Brand";v="99"`,
           'sec-ch-ua-mobile':   '?0',
           'sec-ch-ua-platform': persona.platform === 'Win32' ? '"Windows"' : '"macOS"',
+          'sec-ch-ua-full-version-list': `"Chromium";v="${persona.uaData.brands[1].version}", "Google Chrome";v="${persona.uaData.brands[2].version}", "Not=A?Brand";v="99"`,
         });
 
         // ── Step 3: Session warming ─────────────────────────────────────────
@@ -266,7 +275,7 @@ export class PlaywrightRunner {
 
         // ─── SESSION FLOW ──────────────────────────────────────────────────
         let pageViewCount = 0;
-        const MAX_PAGE_VIEWS = 4;
+        const MAX_PAGE_VIEWS = options.internalVisitCount !== undefined ? options.internalVisitCount + 1 : 4;
         let sessionActive = true;
         let currentUrl    = injectUTM(url);
         let totalAdsFound = 0;

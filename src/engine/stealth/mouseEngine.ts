@@ -73,6 +73,11 @@ export class MouseEngine {
     const pts = dist > 400 ? this.buildSaccadePath({ x: x0, y: y0 }, { x: x1, y: y1 })
                            : this.buildPath({ x: x0, y: y0 }, { x: x1, y: y1 });
 
+    // Fitts's Law: ID = log2(2D / W)
+    // We'll use this to scale the velocity based on distance
+    const ID = Math.log2((2 * dist) / 50 + 1); // 50px as baseline target width
+    const baseDelay = 5 + (ID * 2);
+
     for (const pt of pts) {
       // Hand tremor
       const jx = Math.random() < cfg.tremor ? pt.x + this.gaussian(0, 1.2) : pt.x;
@@ -84,7 +89,7 @@ export class MouseEngine {
         await new Promise(r => setTimeout(r, this.gaussian(120, 40)));
       }
 
-      await new Promise(r => setTimeout(r, Math.random() * 5 + 2));
+      await new Promise(r => setTimeout(r, Math.random() * baseDelay + 2));
     }
 
     // Momentum drift — slight overshoot then correct

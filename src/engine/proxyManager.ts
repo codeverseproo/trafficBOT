@@ -2,7 +2,8 @@ import Store from 'electron-store';
 
 export interface ProxyConfig {
   id: string;
-  server: string;
+  server: string; // hostname:port
+  protocol: 'http' | 'https' | 'socks4' | 'socks5';
   username?: string;
   password?: string;
   healthScore: number;
@@ -39,31 +40,58 @@ export class ProxyManager {
   bulkImport(text: string) {
     const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
     const parsed: Omit<ProxyConfig, 'healthScore' | 'failures'>[] = [];
+    
     for (const line of lines) {
-      if (line.includes('://')) {
-        try {
+      try {
+        let protocol: 'http' | 'https' | 'socks4' | 'socks5' = 'http';
+        let server = '';
+        let username: string | undefined;
+        let password: string | undefined;
+
+        if (line.includes('://')) {
+          // Format: protocol://[user:pass@]host:port
           const url = new URL(line);
+          const proto = url.protocol.replace(':', '').toLowerCase();
+          if (['http', 'https', 'socks4', 'socks5'].includes(proto)) {
+            protocol = proto as any;
+          }
+          server = `${url.hostname}:${url.port}`;
+          username = url.username ? decodeURIComponent(url.username) : undefined;
+          password = url.password ? decodeURIComponent(url.password) : undefined;
+        } else {
+          // Format: host:port[:user:pass]
+          const parts = line.split(':');
+          if (parts.length >= 2) {
+            server = `${parts[0]}:${parts[1]}`;
+            if (parts.length >= 4) {
+              username = parts[2];
+              password = parts[3];
+            }
+          }
+        }
+
+        if (server) {
           parsed.push({
-            id: Date.now().toString() + Math.random().toString(),
-            server: `${url.protocol}//${url.hostname}:${url.port}`,
-            username: url.username ? decodeURIComponent(url.username) : undefined,
-            password: url.password ? decodeURIComponent(url.password) : undefined,
-          });
-        } catch {}
-      } else {
-        const parts = line.split(':');
-        if (parts.length >= 2) {
-          parsed.push({
-            id: Date.now().toString() + Math.random().toString(),
-            server: `http://${parts[0]}:${parts[1]}`,
-            username: parts[2] || undefined,
-            password: parts[3] || undefined,
+            id: `px_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            server,
+            protocol,
+            username,
+            password,
           });
         }
+      } catch (e) {
+        console.warn(`[ProxyManager] Failed to parse proxy line: ${line}`, e);
       }
     }
+
     const proxies = this.getProxies();
-    for (const p of parsed) proxies.push({ ...p, healthScore: 100, failures: 0 });
+    for (const p of parsed) {
+      // Avoid duplicates based on server + protocol
+      if (!proxies.some(existing => existing.server === p.server && existing.protocol === p.protocol)) {
+        proxies.push({ ...p, healthScore: 100, failures: 0 });
+      }
+    }
+    
     (this.store as any).set('proxies', proxies);
     return parsed.length;
   }

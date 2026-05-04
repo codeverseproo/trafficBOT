@@ -1,4 +1,5 @@
 import { type Page } from 'playwright';
+import { StatusObserver } from './stealth/statusObserver';
 
 export interface AdStatus {
   adsFound: number;
@@ -126,7 +127,8 @@ export class AdEngine {
         let y = 0;
         while (y < Math.min(document.documentElement.scrollHeight, maxDepth)) {
           window.scrollTo({ top: y, behavior: 'instant' });
-          // Dispatch events that IntersectionObserver + lazy loaders listen to
+          // Force layout/repaint to trigger IntersectionObservers in headless
+          document.body.offsetHeight;
           window.dispatchEvent(new Event('scroll'));
           window.dispatchEvent(new Event('resize'));
           await new Promise(r => setTimeout(r, delay));
@@ -394,28 +396,33 @@ export class AdEngine {
     // ── Helper: wait for page to be fully loaded ──────────────────────────
     const waitFullLoad = async (label: string) => {
       console.log(`${tag} Waiting for full page load (${label})...`);
-      // 'load' fires when all resources including scripts are done
-      await page.waitForLoadState('load', { timeout: 30000 }).catch(() => {});
-      // Then wait for network to go quiet (ad scripts fire XHR after load)
-      await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
-      // Small settle buffer for deferred ad init scripts
+      
+      // Start real-time observation
+      await StatusObserver.start(page);
+      
+      // Wait for network/DOM stability
+      const stable = await StatusObserver.waitForStability(page);
+      if (stable) {
+        console.log(`${tag} Page reached stable state (${label}).`);
+      } else {
+        // Fallback to traditional load state
+        await page.waitForLoadState('load', { timeout: 20000 }).catch(() => {});
+        await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+      }
+      
       await new Promise(r => setTimeout(r, 1000));
-      console.log(`${tag} Page fully loaded (${label}).`);
     };
 
-    // ── Helper: trigger lazy ads then poll up to 10s for fills ────────────
+    // ── Helper: trigger lazy ads then poll for fills ────────────────────
     const triggerAndPoll = async (label: string): Promise<boolean> => {
       console.log(`${tag} Triggering lazy ads (${label})...`);
       await this.triggerLazyAds(page, workerId);
 
-      const pollStart = Date.now();
-      while (Date.now() - pollStart < 10000) {
-        const status = await this.detectGoogleAds(page).catch(() => ({ adsFound: 0 }));
-        if (status.adsFound > 0) {
-          console.log(`${tag} ✓ Ads visible after ${Math.round((Date.now() - pollStart)/1000)}s (${label})`);
-          return true;
-        }
-        await new Promise(r => setTimeout(r, 1000));
+      // Use StatusObserver to wait for ads to render
+      const adCount = await StatusObserver.waitForAds(page, 10000);
+      if (adCount > 0) {
+        console.log(`${tag} ✓ ${adCount} ads visible via MutationObserver (${label})`);
+        return true;
       }
       return false;
     };

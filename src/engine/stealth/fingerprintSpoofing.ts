@@ -37,7 +37,7 @@ export class FingerprintSpoofing {
       }
 
       // ── 4. navigator.userAgentData (CRITICAL FOR CHROME) ──────────────────
-      if ((navigator as any).userAgentData) {
+      if ((navigator as any).userAgentData || (window as any).NavigatorUAData) {
         const uaData = {
           brands: persona.uaData.brands,
           mobile: persona.uaData.mobile,
@@ -52,10 +52,16 @@ export class FingerprintSpoofing {
             if (hints.includes('model'))        result.model        = persona.uaData.model;
             if (hints.includes('platformVersion')) result.platformVersion = persona.platform === 'Win32' ? '10.0.0' : '13.5.0';
             if (hints.includes('bitness'))      result.bitness      = persona.uaData.bitness;
+            if (hints.includes('fullVersionList')) result.fullVersionList = persona.uaData.brands;
             return result;
           }
         };
-        Object.defineProperty(navigator, 'userAgentData', { get: () => uaData, configurable: true });
+        try {
+          Object.defineProperty(navigator, 'userAgentData', { get: () => uaData, configurable: true });
+          if ((window as any).NavigatorUAData) {
+            Object.defineProperty(window, 'NavigatorUAData', { get: () => function() { return uaData; }, configurable: true });
+          }
+        } catch {}
       }
 
       // ── 5. navigator.languages — match locale ────────────────────────────
@@ -74,15 +80,63 @@ export class FingerprintSpoofing {
         return res;
       };
 
-      // ── 7. WebGL Vendor/Renderer ─────────────────────────────────────────
+      // ── 6b. ClientRects Jittering (AdsPower/GoLogin style) ────────────────
+      const jitter = (val: number) => val + (Math.random() * 0.0001 - 0.00005);
+      const wrapRect = (rect: DOMRect): DOMRect => {
+        const newRect = {
+          x: jitter(rect.x), y: jitter(rect.y),
+          width: jitter(rect.width), height: jitter(rect.height),
+          top: jitter(rect.top), right: jitter(rect.right),
+          bottom: jitter(rect.bottom), left: jitter(rect.left),
+          toJSON: () => rect.toJSON()
+        };
+        return newRect as DOMRect;
+      };
+
+      const origGetBCR = HTMLElement.prototype.getBoundingClientRect;
+      HTMLElement.prototype.getBoundingClientRect = function() {
+        const rect = origGetBCR.apply(this, arguments as any);
+        return wrapRect(rect);
+      };
+
+      const origGetClientRects = HTMLElement.prototype.getClientRects;
+      HTMLElement.prototype.getClientRects = function() {
+        const rects = origGetClientRects.apply(this, arguments as any);
+        const list = Array.from(rects).map(r => wrapRect(r));
+        return {
+          length: list.length,
+          item: (i: number) => list[i],
+          [Symbol.iterator]: function* () { yield* list; }
+        } as any;
+      };
+
+      // ── 7. WebGL Deep Spoofing ───────────────────────────────────────────
       const getParameter = WebGLRenderingContext.prototype.getParameter;
       WebGLRenderingContext.prototype.getParameter = function(parameter) {
         if (parameter === 37445) return persona.renderer.vendor;   // UNMASKED_VENDOR_WEBGL
         if (parameter === 37446) return persona.renderer.renderer; // UNMASKED_RENDERER_WEBGL
+        // Additional common GL fingerprint targets
+        if (parameter === 35661) return 16; // MAX_COMBINED_TEXTURE_IMAGE_UNITS
+        if (parameter === 34076) return 16384; // MAX_TEXTURE_SIZE
+        if (parameter === 34930) return 4096; // MAX_RENDERBUFFER_SIZE
         return getParameter.apply(this, arguments as any);
       };
 
-      // ── 8. Audio Jitter ──────────────────────────────────────────────────
+      const getShaderPrecisionFormat = WebGLRenderingContext.prototype.getShaderPrecisionFormat;
+      WebGLRenderingContext.prototype.getShaderPrecisionFormat = function(shaderType, precisionType) {
+        const format = getShaderPrecisionFormat.apply(this, arguments as any);
+        if (format) {
+          // Add deterministic jitter to shader precision
+          return {
+            rangeMin: format.rangeMin,
+            rangeMax: format.rangeMax,
+            precision: format.precision + (Math.random() > 0.5 ? 1 : 0)
+          };
+        }
+        return format;
+      };
+
+      // ── 8. Audio Deep Spoofing ───────────────────────────────────────────
       const origGetChannelData = AudioBuffer.prototype.getChannelData;
       AudioBuffer.prototype.getChannelData = function() {
         const res = origGetChannelData.apply(this, arguments as any);
@@ -92,6 +146,21 @@ export class FingerprintSpoofing {
         }
         return res;
       };
+
+      // ── 8b. OfflineAudioContext Rendering Spoofing ───────────────────────
+      if ((window as any).OfflineAudioContext) {
+        const origStartRendering = OfflineAudioContext.prototype.startRendering;
+        OfflineAudioContext.prototype.startRendering = function() {
+          return origStartRendering.apply(this, arguments as any).then((buffer: AudioBuffer) => {
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < 20; i++) {
+              const idx = Math.floor(Math.random() * data.length);
+              data[idx] += (Math.random() - 0.5) * 1e-8;
+            }
+            return buffer;
+          });
+        };
+      }
 
       // ── 9. Hardware Concurrency & Device Memory ──────────────────────────
       Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => persona.hardwareConcurrency, configurable: true });
@@ -104,9 +173,18 @@ export class FingerprintSpoofing {
       Object.defineProperty(screen, 'availHeight', { get: () => persona.screen.avH, configurable: true });
       Object.defineProperty(screen, 'colorDepth',  { get: () => persona.screen.colorDepth, configurable: true });
       Object.defineProperty(screen, 'pixelDepth',  { get: () => persona.screen.pixelDepth, configurable: true });
+      
+      if (screen.orientation) {
+        Object.defineProperty(screen.orientation, 'type', { get: () => 'landscape-primary', configurable: true });
+        Object.defineProperty(screen.orientation, 'angle', { get: () => 0, configurable: true });
+      }
+
       try {
         Object.defineProperty(window, 'outerWidth',  { get: () => persona.screen.w, configurable: true });
         Object.defineProperty(window, 'outerHeight', { get: () => persona.screen.h, configurable: true });
+        Object.defineProperty(window, 'innerWidth',  { get: () => persona.screen.w, configurable: true });
+        Object.defineProperty(window, 'innerHeight', { get: () => persona.screen.h, configurable: true });
+        Object.defineProperty(window, 'devicePixelRatio', { get: () => 1, configurable: true });
       } catch {}
 
       // ── 11. navigator.connection singleton ────────────────────────────────
@@ -226,13 +304,70 @@ export class FingerprintSpoofing {
         Object.defineProperty(Object.getPrototypeOf(navigator), 'webdriver', { get: () => false, configurable: true });
       } catch {}
 
-      // ── 27. Page Integrity (Referrer-Policy & Meta) ────────────────────────
+      // ── 27. Permissions spoof ─────────────────────────────────────────────
+      if (navigator.permissions) {
+        const origQuery = navigator.permissions.query;
+        (navigator.permissions as any).query = (params: any) => 
+          params.name === 'notifications' 
+            ? Promise.resolve({ state: 'prompt', onchange: null }) 
+            : origQuery.call(navigator.permissions, params);
+      }
+
+      // ── 28. Media Devices spoof ───────────────────────────────────────────
+      if (navigator.mediaDevices && (navigator.mediaDevices as any).enumerateDevices) {
+        const origEnumerate = (navigator.mediaDevices as any).enumerateDevices.bind(navigator.mediaDevices);
+        (navigator.mediaDevices as any).enumerateDevices = async () => {
+          return [
+            { kind: 'audioinput', label: 'Internal Microphone', deviceId: 'default', groupId: 'default' },
+            { kind: 'videoinput', label: 'FaceTime HD Camera', deviceId: 'default', groupId: 'default' },
+            { kind: 'audiooutput', label: 'Internal Speakers', deviceId: 'default', groupId: 'default' }
+          ];
+        };
+      }
+
+      // ── 29. Page Integrity (Referrer-Policy & Meta) ────────────────────────
       try {
         const meta = document.createElement('meta');
         meta.name = 'referrer';
         meta.content = 'no-referrer-when-downgrade';
         document.head.appendChild(meta);
       } catch {}
+
+      // ── 30. WebRTC IP Masking (CRITICAL) ──────────────────────────────────
+      if (window.RTCPeerConnection) {
+        const origPC = window.RTCPeerConnection;
+        const maskedIP = `192.168.1.${Math.floor(Math.random() * 254) + 1}`;
+        
+        (window as any).RTCPeerConnection = function(config: any) {
+          const pc = new origPC(config);
+          const origCreateOffer = pc.createOffer.bind(pc);
+          pc.createOffer = function() {
+            return origCreateOffer.apply(this, arguments as any).then((offer: any) => {
+              offer.sdp = offer.sdp.replace(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/g, maskedIP);
+              return offer;
+            });
+          };
+          return pc;
+        };
+        (window as any).RTCPeerConnection.prototype = origPC.prototype;
+      }
+
+      // ── 31. Battery Status API Spoofing ───────────────────────────────────
+      if (navigator.getBattery) {
+        const battery = {
+          charging: true,
+          chargingTime: 0,
+          dischargingTime: Infinity,
+          level: 0.9 + Math.random() * 0.1,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          onchargingchange: null,
+          onchargingtimechange: null,
+          ondischargingtimechange: null,
+          onlevelchange: null,
+        };
+        navigator.getBattery = () => Promise.resolve(battery) as any;
+      }
 
     }, opts);
   }
