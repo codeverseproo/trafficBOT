@@ -256,6 +256,13 @@ export class PlaywrightRunner {
           'sec-ch-ua-mobile':   '?0',
           'sec-ch-ua-platform': persona.platform === 'Win32' ? '"Windows"' : '"macOS"',
           'sec-ch-ua-full-version-list': `"Chromium";v="${persona.uaData.brands[1].version}", "Google Chrome";v="${persona.uaData.brands[2].version}", "Not=A?Brand";v="99"`,
+          'Upgrade-Insecure-Requests': '1',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+          'Accept-Language': locale + ',en;q=0.9',
+          'Sec-Fetch-Site': 'none',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-User': '?1',
+          'Sec-Fetch-Dest': 'document',
         });
 
         // ── Step 3: Session warming ─────────────────────────────────────────
@@ -269,10 +276,9 @@ export class PlaywrightRunner {
         await FingerprintSpoofing.apply(page, persona, locale);
 
         // ── Step 5: Referrer override ───────────────────────────────────────
-        const referrer = randomReferrer(url);
-        if (referrer) {
-          await page.setExtraHTTPHeaders({ 'Referer': referrer });
-        }
+        const initialReferrer = randomReferrer(url);
+        // We set the referrer for the INITIAL page.goto only, 
+        // not as a global header which breaks sub-resource loading.
 
         // ─── SESSION FLOW ──────────────────────────────────────────────────
         let pageViewCount = 0;
@@ -293,7 +299,11 @@ export class PlaywrightRunner {
             console.log(`[W${workerId}] ── P${pageViewCount}/${MAX_PAGE_VIEWS}: ${currentUrl}`);
 
             // ─ 1. Navigate ────────────────────────────────────────────────
-            const nav = await page.goto(currentUrl, { waitUntil: 'domcontentloaded', timeout: 40000 })
+            const nav = await page.goto(currentUrl, { 
+              waitUntil: 'domcontentloaded', 
+              timeout: 40000,
+              referer: pageViewCount === 1 ? initialReferrer : undefined 
+            })
               .catch(async (err: Error) => {
                 const m = err.message;
                 if (m.includes('ERR_SOCKS_CONNECTION_FAILED') ||
