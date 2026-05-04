@@ -298,13 +298,17 @@ export class PlaywrightRunner {
             console.log(`[W${workerId}] ── P${pageViewCount}/${MAX_PAGE_VIEWS}: ${currentUrl}`);
 
             // ─ 1. Navigate ────────────────────────────────────────────────
+            if (pageViewCount === 1) {
+              await page.setExtraHTTPHeaders({ 'Upgrade-Insecure-Requests': '1' });
+            }
+            
             const nav = await page.goto(currentUrl, { 
               waitUntil: 'domcontentloaded', 
               timeout: 40000,
               referer: pageViewCount === 1 ? initialReferrer : undefined,
-              extraHeaders: { 'Upgrade-Insecure-Requests': '1' } // Only for navigation!
             })
               .catch(async (err: Error) => {
+                // ... (rest of error handling)
                 const m = err.message;
                 if (m.includes('ERR_SOCKS_CONNECTION_FAILED') ||
                     m.includes('ERR_PROXY_CONNECTION_FAILED')  ||
@@ -324,6 +328,12 @@ export class PlaywrightRunner {
                 }
                 throw err;
               });
+
+            if (pageViewCount === 1) {
+              // Remove the navigation-only header so it doesn't break sub-resource CORS
+              await page.setExtraHTTPHeaders({}); 
+            }
+
             if (!sessionActive || !nav) break;
 
             // ─ 2. Full load → trigger lazy ads → refresh if needed ────────
