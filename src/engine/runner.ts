@@ -256,7 +256,6 @@ export class PlaywrightRunner {
           'sec-ch-ua-mobile':   '?0',
           'sec-ch-ua-platform': persona.platform === 'Win32' ? '"Windows"' : '"macOS"',
           'sec-ch-ua-full-version-list': `"Chromium";v="${persona.uaData.brands[1].version}", "Google Chrome";v="${persona.uaData.brands[2].version}", "Not=A?Brand";v="99"`,
-          'Upgrade-Insecure-Requests': '1',
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
           'Accept-Language': locale + ',en;q=0.9',
           'Sec-Fetch-Site': 'none',
@@ -302,7 +301,8 @@ export class PlaywrightRunner {
             const nav = await page.goto(currentUrl, { 
               waitUntil: 'domcontentloaded', 
               timeout: 40000,
-              referer: pageViewCount === 1 ? initialReferrer : undefined 
+              referer: pageViewCount === 1 ? initialReferrer : undefined,
+              extraHeaders: { 'Upgrade-Insecure-Requests': '1' } // Only for navigation!
             })
               .catch(async (err: Error) => {
                 const m = err.message;
