@@ -256,12 +256,7 @@ export class PlaywrightRunner {
           'sec-ch-ua-mobile':   '?0',
           'sec-ch-ua-platform': persona.platform === 'Win32' ? '"Windows"' : '"macOS"',
           'sec-ch-ua-full-version-list': `"Chromium";v="${persona.uaData.brands[1].version}", "Google Chrome";v="${persona.uaData.brands[2].version}", "Not=A?Brand";v="99"`,
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
           'Accept-Language': locale + ',en;q=0.9',
-          'Sec-Fetch-Site': 'none',
-          'Sec-Fetch-Mode': 'navigate',
-          'Sec-Fetch-User': '?1',
-          'Sec-Fetch-Dest': 'document',
         });
 
         // ── Step 3: Session warming ─────────────────────────────────────────
@@ -299,7 +294,14 @@ export class PlaywrightRunner {
 
             // ─ 1. Navigate ────────────────────────────────────────────────
             if (pageViewCount === 1) {
-              await page.setExtraHTTPHeaders({ 'Upgrade-Insecure-Requests': '1' });
+              await page.setExtraHTTPHeaders({ 
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-User': '?1',
+                'Sec-Fetch-Dest': 'document',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+              });
             }
             
             const nav = await page.goto(currentUrl, { 
