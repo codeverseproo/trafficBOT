@@ -353,7 +353,7 @@ export class FingerprintSpoofing {
       }
 
       // ── 31. Battery Status API Spoofing ───────────────────────────────────
-      if (navigator.getBattery) {
+      if ((navigator as any).getBattery) {
         const battery = {
           charging: true,
           chargingTime: 0,
@@ -366,7 +366,7 @@ export class FingerprintSpoofing {
           ondischargingtimechange: null,
           onlevelchange: null,
         };
-        navigator.getBattery = () => Promise.resolve(battery) as any;
+        (navigator as any).getBattery = () => Promise.resolve(battery) as any;
       }
 
     }, opts);
